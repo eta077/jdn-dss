@@ -1,5 +1,6 @@
 [workspace]
 
 members = [
-    "dss_main"
+    "dss_main",
+    "dss_mlb",
 ]

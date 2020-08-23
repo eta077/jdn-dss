@@ -1,5 +1,5 @@
 [package]
-name = "dss_main"
+name = "dss_mlb"
 version = "0.1.0"
 authors = ["John Nystrom <eta077@yahoo.com>"]
 edition = "2018"
@@ -7,7 +7,10 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-std = { version = "*", features = ["attributes", "tokio02"] }
-dss_mlb = { path = "../dss_mlb" }
+chrono = "*"
 image = "*"
-glium = "*"
+reqwest = { version = "*", features = ["json"] }
+serde = "*"
+serde_derive = "*"
+serde_json = "*"
+tokio = { version = "*", features = ["macros"] }
