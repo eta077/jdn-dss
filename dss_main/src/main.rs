@@ -1,77 +1,66 @@
+mod gl_utils;
+
 #[macro_use]
 extern crate glium;
 
 use dss_mlb::MlbGameClientInfo;
-use dss_mlb::MlbManager;
+use gl_utils::Vertex;
 use glium::glutin::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
 use glium::glutin::event_loop::{ControlFlow, EventLoop};
 use glium::glutin::window::WindowBuilder;
 use glium::glutin::ContextBuilder;
 use glium::texture::{RawImage2d, Texture2d};
-use glium::Display;
-use glium::Surface;
+use glium::{Display, Surface};
+use glium_glyph::glyph_brush::Section;
+use glium_glyph::GlyphBrushBuilder;
+use log4rs::append::file::FileAppender;
+use log4rs::config::{Appender, Config, Root};
+use log4rs::encode::pattern::PatternEncoder;
 
 const PAGE_SIZE: usize = 4;
+const DEFAULT_RAW: &[u8; 22931] = include_bytes!("default.jpg");
 
-#[async_std::main]
+#[tokio::main]
 async fn main() {
-    let mlb_manager = MlbManager {};
-    let result = mlb_manager.get_games().await.expect("Unable to parse JSON");
+    let log_file = FileAppender::builder()
+        .encoder(Box::new(PatternEncoder::new(
+            "{d(%Y-%m-%d %H:%M:%S)} - {({l}):5.5}{n}    {m}{n}{n}",
+        )))
+        .build("log/dss.log")
+        .expect("Unable to create log file appender.");
+    let config = Config::builder()
+        .appender(Appender::builder().build("log_file", Box::new(log_file)))
+        .build(Root::builder().appender("log_file").build(log::LevelFilter::Warn))
+        .expect("Unable to create log configuration.");
+    log4rs::init_config(config).expect("Unable to apply logging configuration.");
+
+    let result = dss_mlb::get_games().await;
     let mut days = Vec::with_capacity(result.len());
-    let mut focused_day: usize = result.len() / 2;
-    for day in result {
-        days.push(DayRowInfo::new(day.clone()));
+    let mut focused_day: usize = 0;
+    let mut focused_index: usize = 0;
+    for day in result.values().rev() {
+        let mut games: Vec<MlbGameGlInfo> = Vec::with_capacity(day.len());
+        for game in day {
+            games.push(game.to_owned().into());
+        }
+        days.push(DayRowInfo::new(games));
     }
 
-    let el = EventLoop::new();
-    let wb = WindowBuilder::new();
+    let event_loop = EventLoop::new();
+    let wb = WindowBuilder::new().with_title("JDN DSS Solution");
     let cb = ContextBuilder::new();
-    let display = Display::new(wb, cb, &el).unwrap();
+    let display = Display::new(wb, cb, &event_loop).unwrap();
 
-    #[derive(Copy, Clone)]
-    struct Vertex {
-        position: [f32; 2],
-        tex_coords: [f32; 2],
-    }
-    implement_vertex!(Vertex, position, tex_coords);
+    let program = glium::Program::from_source(
+        &display,
+        gl_utils::VERTEX_SHADER_SRC,
+        gl_utils::FRAGMENT_SHADER_SRC,
+        None,
+    )
+    .unwrap();
 
-    let vertex_shader_src = r#"
-        #version 140
+    let mut text_brush = GlyphBrushBuilder::using_font_bytes(include_bytes!("tahoma.ttf").to_vec()).build(&display);
 
-        uniform mat4 matrix;
-
-        in vec2 position;
-        in vec2 tex_coords;
-
-        out vec2 v_tex_coords;
-                
-        void main() {
-            v_tex_coords = tex_coords;
-            gl_Position = matrix * vec4(position, 0.0, 1.0);
-        }
-    "#;
-
-    let fragment_shader_src = r#"
-        #version 140
-
-        uniform sampler2D tex;
-
-        in vec2 v_tex_coords;
-        out vec4 color;
-        
-        void main() {
-            color = texture(tex, v_tex_coords);
-        }
-    "#;
-
-    let program = glium::Program::from_source(&display, vertex_shader_src, fragment_shader_src, None).unwrap();
-
-    let background_rgba = image::load_from_memory(include_bytes!("background.jpg"))
-        .unwrap()
-        .into_rgba();
-    let background_dimensions = background_rgba.dimensions();
-    let background_image = RawImage2d::from_raw_rgba_reversed(&background_rgba.into_raw(), background_dimensions);
-    let background_texture = Texture2d::new(&display, background_image).unwrap();
     let background_shape = vec![
         Vertex {
             position: [-1.0, -1.0],
@@ -100,13 +89,65 @@ async fn main() {
     ];
     let background_buffer = glium::VertexBuffer::new(&display, &background_shape).unwrap();
 
-    el.run(move |event, _, control_flow| {
-        match event {
-            Event::WindowEvent { event, .. } => match event {
-                WindowEvent::CloseRequested => {
-                    *control_flow = ControlFlow::Exit;
-                    return;
-                }
+    let background_rgba = image::load_from_memory(include_bytes!("background.jpg"))
+        .unwrap()
+        .into_rgba();
+    let background_dimensions = background_rgba.dimensions();
+    let background_image = RawImage2d::from_raw_rgba_reversed(&background_rgba.into_raw(), background_dimensions);
+    let background_texture = Texture2d::new(&display, background_image).unwrap();
+
+    let game_width = 0.375;
+    let game_height = 0.28125;
+    let game_padding = 0.05;
+    let mut game_shapes = Vec::with_capacity(days.len() * PAGE_SIZE);
+    for row in 0..days.len() {
+        for i in 0..PAGE_SIZE {
+            let x_offset = i as f32 * (game_width + game_padding * 2.0);
+            let y_offset = row as f32 * (game_height + game_padding * 2.0);
+            game_shapes.push(vec![
+                Vertex {
+                    position: [-0.95 + x_offset, 0.0 - y_offset],
+                    tex_coords: [0.0, 0.0],
+                },
+                Vertex {
+                    position: [-0.95 + x_offset, 0.28125 - y_offset],
+                    tex_coords: [0.0, 1.0],
+                },
+                Vertex {
+                    position: [-0.525 + x_offset, 0.28125 - y_offset],
+                    tex_coords: [1.0, 1.0],
+                },
+                Vertex {
+                    position: [-0.95 + x_offset, 0.0 - y_offset],
+                    tex_coords: [0.0, 0.0],
+                },
+                Vertex {
+                    position: [-0.525 + x_offset, 0.28125 - y_offset],
+                    tex_coords: [1.0, 1.0],
+                },
+                Vertex {
+                    position: [-0.525 + x_offset, 0.0 - y_offset],
+                    tex_coords: [1.0, 0.0],
+                },
+            ]);
+        }
+    }
+
+    event_loop.run(move |event, _, control_flow| {
+        *control_flow = ControlFlow::Wait;
+
+        let background_uniforms = uniform! {
+            matrix: [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0 , 0.0, 0.0, 1.0f32],
+            ],
+            tex: &background_texture,
+        };
+        if let Event::WindowEvent { event, .. } = event {
+            match event {
+                WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
                 WindowEvent::KeyboardInput {
                     input:
                         KeyboardInput {
@@ -118,15 +159,19 @@ async fn main() {
                 } => {
                     let day = &mut days[focused_day];
                     match (virtual_code, state) {
-                        (VirtualKeyCode::Escape, _) => {
-                            *control_flow = ControlFlow::Exit;
-                            return;
-                        }
                         (VirtualKeyCode::Left, ElementState::Released) => {
-                            day.move_left();
+                            if focused_index > 0 {
+                                focused_index -= 1;
+                            } else if day.begin_index > 0 {
+                                day.begin_index -= 1;
+                            }
                         }
                         (VirtualKeyCode::Right, ElementState::Released) => {
-                            day.move_right();
+                            if focused_index < PAGE_SIZE - 1 {
+                                focused_index += 1;
+                            } else if day.begin_index + PAGE_SIZE < day.games.len() {
+                                day.begin_index += 1;
+                            }
                         }
                         (VirtualKeyCode::Up, ElementState::Released) => {
                             if focused_day > 0 {
@@ -134,7 +179,7 @@ async fn main() {
                             }
                         }
                         (VirtualKeyCode::Down, ElementState::Released) => {
-                            if focused_day < days.len() - 2 {
+                            if focused_day < days.len() - 1 {
                                 focused_day += 1;
                             }
                         }
@@ -142,30 +187,10 @@ async fn main() {
                     }
                 }
                 _ => (),
-            },
-            Event::NewEvents(cause) => match cause {
-                glium::glutin::event::StartCause::ResumeTimeReached { .. } => (),
-                glium::glutin::event::StartCause::Init => (),
-                _ => return,
-            },
-            _ => {}
+            }
         }
-
-        let next_frame_time = std::time::Instant::now() + std::time::Duration::from_nanos(33_666_667);
-        *control_flow = ControlFlow::WaitUntil(next_frame_time);
-
         let mut target = display.draw();
         target.clear_color(0.0, 0.0, 0.0, 0.0);
-
-        let background_uniforms = uniform! {
-            matrix: [
-                [1.0, 0.0, 0.0, 0.0],
-                [0.0, 1.0, 0.0, 0.0],
-                [0.0, 0.0, 1.0, 0.0],
-                [0.0 , 0.0, 0.0, 1.0f32],
-            ],
-            tex: &background_texture,
-        };
         target
             .draw(
                 &background_buffer,
@@ -174,97 +199,130 @@ async fn main() {
                 &background_uniforms,
                 &Default::default(),
             )
-            .expect("Target could not draw background");
+            .expect("Target could not draw game");
+        for (row, day) in days.iter_mut().enumerate() {
+            for i in day.begin_index..(day.begin_index + PAGE_SIZE) {
+                let col = i - day.begin_index;
+                let game = &mut day.games[i];
 
-        for (y, day) in days.iter().enumerate() {
-            for (x, game) in day.games.iter().enumerate() {
-                if let Some(image) = &game.image {
-                    let game_rgba = image::load_from_memory_with_format(image.as_slice(), image::ImageFormat::Jpeg)
-                        .expect("Unable to convert game image to rgba")
-                        .into_rgba();
-                    let game_dimensions = game_rgba.dimensions();
-                    let game_image = RawImage2d::from_raw_rgba_reversed(&game_rgba.into_raw(), game_dimensions);
-                    let game_texture = Texture2d::new(&display, game_image).unwrap();
-                    // width  = 0.375
-                    // height = 0.28125
-                    // padding = 0.05
-                    let game_shape = vec![
-                        Vertex {
-                            position: [-0.95 + (x as f32 * 0.475), 0.0 - (y as f32 * 0.33125)],
-                            tex_coords: [0.0, 0.0],
-                        },
-                        Vertex {
-                            position: [-0.95 + (x as f32 * 0.475), 0.28125 - (y as f32 * 0.33125)],
-                            tex_coords: [0.0, 1.0],
-                        },
-                        Vertex {
-                            position: [-0.525 + (x as f32 * 0.475), 0.28125 - (y as f32 * 0.33125)],
-                            tex_coords: [1.0, 1.0],
-                        },
-                        Vertex {
-                            position: [-0.95 + (x as f32 * 0.475), 0.0 - (y as f32 * 0.33125)],
-                            tex_coords: [0.0, 0.0],
-                        },
-                        Vertex {
-                            position: [-0.525 + (x as f32 * 0.475), 0.28125 - (y as f32 * 0.33125)],
-                            tex_coords: [1.0, 1.0],
-                        },
-                        Vertex {
-                            position: [-0.525 + (x as f32 * 0.475), 0.0 - (y as f32 * 0.33125)],
-                            tex_coords: [1.0, 0.0],
-                        },
-                    ];
-                    let game_buffer = glium::VertexBuffer::new(&display, &game_shape).unwrap();
-                    let game_uniforms = uniform! {
-                        matrix: [
-                            [1.0, 0.0, 0.0, 0.0],
-                            [0.0, 1.0, 0.0, 0.0],
-                            [0.0, 0.0, 1.0, 0.0],
-                            [0.0 , 0.0, 0.0, 1.0f32],
-                        ],
-                        tex: &game_texture,
+                let game_shape = &game_shapes[row * PAGE_SIZE + col];
+
+                if row == focused_day && col == focused_index {
+                    let screen_dims = display.get_framebuffer_dimensions();
+                    let screen_width = screen_dims.0 as f32;
+                    let screen_height = screen_dims.1 as f32;
+                    let text_bounds = (420.0, f32::INFINITY);
+
+                    let game_top_left = game_shape[1].position;
+                    let game_top_left_x = game_top_left[0];
+                    let game_top_left_y = game_top_left[1] + game_padding;
+                    let translate_x = if game_top_left_x < 0.0 {
+                        0.5 - game_top_left_x * -0.5
+                    } else {
+                        0.5 + game_top_left_x / 2.0
                     };
-                    target
-                        .draw(
-                            &game_buffer,
-                            &glium::index::NoIndices(glium::index::PrimitiveType::TrianglesList),
-                            &program,
-                            &game_uniforms,
-                            &Default::default(),
-                        )
-                        .expect("Target could not draw game");
+                    let translate_y = if game_top_left_y < 0.0 {
+                        0.5 + game_top_left_y * -0.5
+                    } else {
+                        0.5 - game_top_left_y / 2.0
+                    };
+                    let text_top_left = (translate_x * screen_width, translate_y * screen_height);
+                    text_brush.queue(Section {
+                        text: &game.info.title,
+                        color: [1.0, 1.0, 1.0, 1.0f32],
+                        screen_position: text_top_left,
+                        bounds: text_bounds,
+                        ..Section::default()
+                    });
+                    let game_bottom_left = game_shape[0].position;
+                    let game_bottom_left_x = game_bottom_left[0];
+                    let game_bottom_left_y = game_bottom_left[1];
+                    let translate_x = if game_bottom_left_x < 0.0 {
+                        0.5 - game_bottom_left_x * -0.5
+                    } else {
+                        0.5 + game_bottom_left_x / 2.0
+                    };
+                    let translate_y = if game_bottom_left_y < 0.0 {
+                        0.5 + game_bottom_left_y * -0.5
+                    } else {
+                        0.5 - game_bottom_left_y / 2.0
+                    };
+                    let text_bottom_left = (translate_x * screen_width, translate_y * screen_height);
+                    text_brush.queue(Section {
+                        text: &game.info.summary,
+                        color: [1.0, 1.0, 1.0, 1.0f32],
+                        screen_position: text_bottom_left,
+                        bounds: text_bounds,
+                        ..Section::default()
+                    });
+                    text_brush.draw_queued(&display, &mut target);
                 }
+                let game_buffer = glium::VertexBuffer::new(&display, game_shape).unwrap();
+                let game_uniforms = uniform! {
+                    matrix: [
+                        [1.0, 0.0, 0.0, 0.0],
+                        [0.0, 1.0, 0.0, 0.0],
+                        [0.0, 0.0, 1.0, 0.0],
+                        [0.0, 0.0, 0.0, 1.0f32],
+                    ],
+                    tex: game.get_texture(&display),
+                };
+                target
+                    .draw(
+                        &game_buffer,
+                        &glium::index::NoIndices(glium::index::PrimitiveType::TrianglesList),
+                        &program,
+                        &game_uniforms,
+                        &Default::default(),
+                    )
+                    .expect("Target could not draw game");
             }
         }
-
         target.finish().expect("Target could not finish");
     });
 }
 
+struct MlbGameGlInfo {
+    info: MlbGameClientInfo,
+    texture: Option<Texture2d>,
+}
+
+impl MlbGameGlInfo {
+    pub fn get_texture(&mut self, display: &Display) -> &Texture2d {
+        if self.texture.is_none() {
+            let image_raw = if let Some(image) = &self.info.image {
+                image.as_slice()
+            } else {
+                DEFAULT_RAW
+            };
+            let game_rgba = image::load_from_memory_with_format(image_raw, image::ImageFormat::Jpeg)
+                .expect("Unable to convert game image to rgba")
+                .into_rgba();
+            let game_dimensions = game_rgba.dimensions();
+            let game_image = RawImage2d::from_raw_rgba_reversed(&game_rgba.into_raw(), game_dimensions);
+            let game_texture = Texture2d::new(display, game_image).unwrap();
+            self.texture = Some(game_texture);
+        }
+        self.texture.as_ref().unwrap()
+    }
+}
+
+impl From<MlbGameClientInfo> for MlbGameGlInfo {
+    fn from(orig: MlbGameClientInfo) -> Self {
+        MlbGameGlInfo {
+            info: orig,
+            texture: None,
+        }
+    }
+}
+
 struct DayRowInfo {
-    games: Vec<MlbGameClientInfo>,
-    focused_index: usize,
+    games: Vec<MlbGameGlInfo>,
+    begin_index: usize,
 }
 
 impl DayRowInfo {
-    pub fn new(games: Vec<MlbGameClientInfo>) -> Self {
-        DayRowInfo {
-            games,
-            focused_index: 0,
-        }
-    }
-
-    pub fn move_left(&mut self) {
-        if self.focused_index > 0 {
-            self.focused_index -= 1;
-            println!("{}", self.games[self.focused_index].title);
-        }
-    }
-
-    pub fn move_right(&mut self) {
-        if !self.games.is_empty() && self.focused_index < self.games.len() - 2 {
-            self.focused_index += 1;
-            println!("{}", self.games[self.focused_index].title);
-        }
+    pub fn new(games: Vec<MlbGameGlInfo>) -> Self {
+        DayRowInfo { games, begin_index: 0 }
     }
 }
