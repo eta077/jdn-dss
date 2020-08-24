@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 mod gl_utils;
 
 #[macro_use]
@@ -13,6 +15,7 @@ use glium::texture::{RawImage2d, Texture2d};
 use glium::{Display, Surface};
 use glium_glyph::glyph_brush::Section;
 use glium_glyph::GlyphBrushBuilder;
+use log::error;
 use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config, Root};
 use log4rs::encode::pattern::PatternEncoder;
@@ -49,7 +52,11 @@ async fn main() {
     let event_loop = EventLoop::new();
     let wb = WindowBuilder::new().with_title("JDN DSS Solution");
     let cb = ContextBuilder::new();
-    let display = Display::new(wb, cb, &event_loop).unwrap();
+    let display = Display::new(wb, cb, &event_loop).unwrap_or_else(|ex| {
+        let msg = "Could not create Display";
+        error!("{}:\n{}", msg, ex);
+        panic!("{}.", msg);
+    });
 
     let program = glium::Program::from_source(
         &display,
@@ -57,7 +64,11 @@ async fn main() {
         gl_utils::FRAGMENT_SHADER_SRC,
         None,
     )
-    .unwrap();
+    .unwrap_or_else(|ex| {
+        let msg = "Could not create OpenGL Program";
+        error!("{}:\n{}", msg, ex);
+        panic!("{}.", msg);
+    });
 
     let mut text_brush = GlyphBrushBuilder::using_font_bytes(include_bytes!("tahoma.ttf").to_vec()).build(&display);
 
@@ -87,14 +98,26 @@ async fn main() {
             tex_coords: [1.0, 0.0],
         },
     ];
-    let background_buffer = glium::VertexBuffer::new(&display, &background_shape).unwrap();
+    let background_buffer = glium::VertexBuffer::new(&display, &background_shape).unwrap_or_else(|ex| {
+        let msg = "Could not create background buffer";
+        error!("{}:\n{}", msg, ex);
+        panic!("{}.", msg);
+    });
 
     let background_rgba = image::load_from_memory(include_bytes!("background.jpg"))
-        .unwrap()
+        .unwrap_or_else(|ex| {
+            let msg = "Could not load background image";
+            error!("{}:\n{}", msg, ex);
+            panic!("{}.", msg);
+        })
         .into_rgba();
     let background_dimensions = background_rgba.dimensions();
     let background_image = RawImage2d::from_raw_rgba_reversed(&background_rgba.into_raw(), background_dimensions);
-    let background_texture = Texture2d::new(&display, background_image).unwrap();
+    let background_texture = Texture2d::new(&display, background_image).unwrap_or_else(|ex| {
+        let msg = "Could not create background texture";
+        error!("{}:\n{}", msg, ex);
+        panic!("{}.", msg);
+    });
 
     let game_width = 0.375;
     let game_height = 0.28125;
@@ -257,7 +280,11 @@ async fn main() {
                     });
                     text_brush.draw_queued(&display, &mut target);
                 }
-                let game_buffer = glium::VertexBuffer::new(&display, game_shape).unwrap();
+                let game_buffer = glium::VertexBuffer::new(&display, game_shape).unwrap_or_else(|ex| {
+                    let msg = "Could not create game buffer";
+                    error!("{}:\n{}", msg, ex);
+                    panic!("{}.", msg);
+                });
                 let game_uniforms = uniform! {
                     matrix: [
                         [1.0, 0.0, 0.0, 0.0],
@@ -275,10 +302,18 @@ async fn main() {
                         &game_uniforms,
                         &Default::default(),
                     )
-                    .expect("Target could not draw game");
+                    .unwrap_or_else(|ex| {
+                        let msg = "Target could not draw game";
+                        error!("{}:\n{}", msg, ex);
+                        panic!("{}.", msg);
+                    });
             }
         }
-        target.finish().expect("Target could not finish");
+        target.finish().unwrap_or_else(|ex| {
+            let msg = "Target could not finish";
+            error!("{}:\n{}", msg, ex);
+            panic!("{}.", msg);
+        });
     });
 }
 
@@ -296,11 +331,19 @@ impl MlbGameGlInfo {
                 DEFAULT_RAW
             };
             let game_rgba = image::load_from_memory_with_format(image_raw, image::ImageFormat::Jpeg)
-                .expect("Unable to convert game image to rgba")
+                .unwrap_or_else(|ex| {
+                    let msg = "Could not create game image from bytes";
+                    error!("{}:\n{}", msg, ex);
+                    panic!("{}.", msg);
+                })
                 .into_rgba();
             let game_dimensions = game_rgba.dimensions();
             let game_image = RawImage2d::from_raw_rgba_reversed(&game_rgba.into_raw(), game_dimensions);
-            let game_texture = Texture2d::new(display, game_image).unwrap();
+            let game_texture = Texture2d::new(display, game_image).unwrap_or_else(|ex| {
+                let msg = "Could not create game texture";
+                error!("{}:\n{}", msg, ex);
+                panic!("{}.", msg);
+            });
             self.texture = Some(game_texture);
         }
         self.texture.as_ref().unwrap()

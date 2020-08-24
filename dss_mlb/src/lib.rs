@@ -115,7 +115,7 @@ pub async fn get_games() -> BTreeMap<NaiveDate, Vec<MlbGameClientInfo>> {
             Ok((day, info)) => {
                 results.insert(day, info);
             }
-            Err(ex) => error!("Error while retrieving game data: \n{}", ex),
+            Err(ex) => error!("Error while retrieving game data:\n{}", ex),
         }
     }
     results
@@ -197,7 +197,7 @@ where
             match extract_image(&article.image.cuts[0].src, client).await {
                 Ok(img_bytes) => (Some(img_bytes), article.headline.to_owned()),
                 Err(ex) => {
-                    error!("Error while retrieving image for {}: \n{}", title, ex);
+                    error!("Error while retrieving image for {}:\n{}", title, ex);
                     (None, default_summary)
                 }
             }
