@@ -9,7 +9,7 @@ use dss_mlb::MlbGameClientInfo;
 use gl_utils::Vertex;
 use glium::glutin::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
 use glium::glutin::event_loop::{ControlFlow, EventLoop};
-use glium::glutin::window::WindowBuilder;
+use glium::glutin::window::{Fullscreen, WindowBuilder};
 use glium::glutin::ContextBuilder;
 use glium::texture::{RawImage2d, Texture2d};
 use glium::{Display, Surface};
@@ -50,7 +50,11 @@ async fn main() {
     }
 
     let event_loop = EventLoop::new();
-    let wb = WindowBuilder::new().with_title("JDN DSS Solution");
+    let monitor = event_loop.primary_monitor();
+    let wb = WindowBuilder::new()
+        .with_title("JDN DSS Solution")
+        .with_inner_size(monitor.size())
+        .with_fullscreen(Some(Fullscreen::Borderless(monitor)));
     let cb = ContextBuilder::new();
     let display = Display::new(wb, cb, &event_loop).unwrap_or_else(|ex| {
         let msg = "Could not create Display";
@@ -69,8 +73,6 @@ async fn main() {
         error!("{}:\n{}", msg, ex);
         panic!("{}.", msg);
     });
-
-    let mut text_brush = GlyphBrushBuilder::using_font_bytes(include_bytes!("tahoma.ttf").to_vec()).build(&display);
 
     let background_shape = vec![
         Vertex {
@@ -118,6 +120,35 @@ async fn main() {
         error!("{}:\n{}", msg, ex);
         panic!("{}.", msg);
     });
+    let background_uniforms = uniform! {
+        matrix: [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0 , 0.0, 0.0, 1.0f32],
+        ],
+        tex: &background_texture,
+    };
+    let mut target = display.draw();
+    target.clear_color(0.0, 0.0, 0.0, 0.0);
+    target
+        .draw(
+            &background_buffer,
+            &glium::index::NoIndices(glium::index::PrimitiveType::TrianglesList),
+            &program,
+            &background_uniforms,
+            &Default::default(),
+        )
+        .unwrap_or_else(|ex| {
+            let msg = "Target could not draw background";
+            error!("{}:\n{}", msg, ex);
+            panic!("{}.", msg);
+        });
+    target.finish().unwrap_or_else(|ex| {
+        let msg = "Target could not finish initial pass";
+        error!("{}:\n{}", msg, ex);
+        panic!("{}.", msg);
+    });
 
     let game_width = 0.375;
     let game_height = 0.28125;
@@ -155,6 +186,8 @@ async fn main() {
             ]);
         }
     }
+    // load text brush after first pass to prevent black screen
+    let mut text_brush = GlyphBrushBuilder::using_font_bytes(include_bytes!("tahoma.ttf").to_vec()).build(&display);
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -222,7 +255,11 @@ async fn main() {
                 &background_uniforms,
                 &Default::default(),
             )
-            .expect("Target could not draw game");
+            .unwrap_or_else(|ex| {
+                let msg = "Target could not draw background";
+                error!("{}:\n{}", msg, ex);
+                panic!("{}.", msg);
+            });
         for (row, day) in days.iter_mut().enumerate() {
             for i in day.begin_index..(day.begin_index + PAGE_SIZE) {
                 let col = i - day.begin_index;
