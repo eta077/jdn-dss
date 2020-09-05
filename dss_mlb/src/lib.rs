@@ -1,5 +1,7 @@
 #![allow(non_snake_case)]
 
+//! Controller that queries an MLB API and provides data to be used by a client to display MLB game editorials.
+
 use chrono::{DateTime, Duration, Local, NaiveDate, TimeZone, Utc};
 use hyper::client::HttpConnector;
 use hyper::{Body, Client};
@@ -9,6 +11,8 @@ use serde_derive::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt::Display;
 
+/// The URI of the MLB API. A date in the format YYYY-mm-dd needs to be appended to the end of the value to
+/// obtain data.
 const GAME_API: &str =
     "http://statsapi.mlb.com/api/v1/schedule?hydrate=game(content(editorial(recap))),decisions&sportId=1&date=";
 

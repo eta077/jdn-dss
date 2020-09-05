@@ -1,4 +1,7 @@
-pub const VERTEX_SHADER_SRC: &str = r#"
+//! General purpose OpenGL utilities.
+
+/// The vertex shader program used to render an image.
+pub const IMAGE_VERTEX_SHADER_SRC: &str = r#"
         #version 140
 
         uniform mat4 matrix;
@@ -14,7 +17,8 @@ pub const VERTEX_SHADER_SRC: &str = r#"
         }
     "#;
 
-pub const FRAGMENT_SHADER_SRC: &str = r#"
+/// The fragment shader program used to render an image.
+pub const IMAGE_FRAGMENT_SHADER_SRC: &str = r#"
         #version 140
 
         uniform sampler2D tex;
@@ -27,14 +31,16 @@ pub const FRAGMENT_SHADER_SRC: &str = r#"
         }
     "#;
 
+/// A container for the position of a vertex and the associated texture.
 #[derive(Copy, Clone)]
-pub struct Vertex {
+pub struct ImageVertex {
     pub position: [f32; 2],
     pub tex_coords: [f32; 2],
 }
-implement_vertex!(Vertex, position, tex_coords);
+implement_vertex!(ImageVertex, position, tex_coords);
 
-pub enum Direction {
+/// An enumeration of directions in which focus can move.
+pub enum FocusDirection {
     Up,
     Down,
     Left,

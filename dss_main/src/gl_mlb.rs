@@ -1,5 +1,7 @@
+//! OpenGL implementation of the MLB UI.
+
 use crate::gl_utils;
-use crate::gl_utils::{Direction, Vertex};
+use crate::gl_utils::{FocusDirection, ImageVertex};
 use dss_mlb::MlbGameClientInfo;
 use glium::texture::{RawImage2d, Texture2d};
 use glium::{Display, Frame, Program, Surface, VertexBuffer};
@@ -10,7 +12,7 @@ use log::error;
 /// The bytes for the image to use for a game if one cannot be retrieved.
 const DEFAULT_RAW: &[u8; 22931] = include_bytes!("default.jpg");
 /// The number of games to display at a time for each day.
-const PAGE_SIZE: usize = 5;
+const X_PAGE_SIZE: usize = 5;
 /// The percentage from the left of the screen at which to start displaying game images.
 const LEFT_INDENT: f32 = 0.05;
 /// The percentage from the top of the screen at which to start displaying game images.
@@ -26,19 +28,24 @@ const GAME_SCALE: f32 = 0.10;
 /// The percentage of the screen added to horizontal and vertical padding to account for non-focused images.
 const NON_FOCUSED_OFFSET: f32 = 0.025;
 
+/// The manager of the MLB UI responsible for rendering implementation and ownership of the backing data.
 pub struct MlbGlUi {
     ui_info: MlbUiInfo,
     program: Program,
-    image_square_vertices: VertexBuffer<Vertex>,
+    image_square_vertices: VertexBuffer<ImageVertex>,
     background_texture: Texture2d,
 }
 
 impl MlbGlUi {
+    /// Initializes the MLB UI manager with the given information.
+    ///
+    /// # Errors
+    /// Panics if the given display cannot be used to create UI elements.
     pub fn init(ui_info: MlbUiInfo, display: &Display) -> Self {
         let program = Program::from_source(
             display,
-            gl_utils::VERTEX_SHADER_SRC,
-            gl_utils::FRAGMENT_SHADER_SRC,
+            gl_utils::IMAGE_VERTEX_SHADER_SRC,
+            gl_utils::IMAGE_FRAGMENT_SHADER_SRC,
             None,
         )
         .unwrap_or_else(|ex| {
@@ -47,27 +54,27 @@ impl MlbGlUi {
             panic!("{}.", msg);
         });
         let image_square_shape = vec![
-            Vertex {
+            ImageVertex {
                 position: [-1.0, -1.0],
                 tex_coords: [0.0, 0.0],
             },
-            Vertex {
+            ImageVertex {
                 position: [-1.0, 1.0],
                 tex_coords: [0.0, 1.0],
             },
-            Vertex {
+            ImageVertex {
                 position: [1.0, 1.0],
                 tex_coords: [1.0, 1.0],
             },
-            Vertex {
+            ImageVertex {
                 position: [-1.0, -1.0],
                 tex_coords: [0.0, 0.0],
             },
-            Vertex {
+            ImageVertex {
                 position: [1.0, 1.0],
                 tex_coords: [1.0, 1.0],
             },
-            Vertex {
+            ImageVertex {
                 position: [1.0, -1.0],
                 tex_coords: [1.0, 0.0],
             },
@@ -100,8 +107,11 @@ impl MlbGlUi {
         }
     }
 
+    /// Draws the MLB UI with the given parameters.
+    ///
+    /// # Errors
+    /// Panics if the given target cannot be used to render the MLB UI.
     pub fn draw(&mut self, display: &Display, target: &mut Frame, text_brush_option: Option<&mut GlyphBrush>) {
-        // draw background
         let background_uniforms = uniform! {
             matrix: [
                 [1.0, 0.0, 0.0, 0.0],
@@ -127,9 +137,8 @@ impl MlbGlUi {
 
         let focused_day = self.ui_info.focused_day;
         let focused_index = self.ui_info.focused_index;
-        // draw each game image
         for (row, day) in self.ui_info.days.iter_mut().enumerate() {
-            for i in day.begin_index..(day.begin_index + PAGE_SIZE) {
+            for i in day.begin_index..(day.begin_index + X_PAGE_SIZE) {
                 let col = i - day.begin_index;
                 let game = &mut day.games[i];
 
@@ -171,7 +180,6 @@ impl MlbGlUi {
                     });
             }
         }
-        // draw text if able
         if let Some(text_brush) = text_brush_option {
             let screen_dims = display.get_framebuffer_dimensions();
             let screen_width = screen_dims.0 as f32;
@@ -203,30 +211,31 @@ impl MlbGlUi {
         }
     }
 
-    pub fn move_focus(&mut self, direction: Direction) {
+    /// Moves the focus in the given direction. The visual representation will be updated on the next call to draw.
+    pub fn move_focus(&mut self, direction: FocusDirection) {
         let info = &mut self.ui_info;
         let day = &mut info.days[info.focused_day];
         match direction {
-            Direction::Left => {
+            FocusDirection::Left => {
                 if info.focused_index > 0 {
                     info.focused_index -= 1;
                 } else if day.begin_index > 0 {
                     day.begin_index -= 1;
                 }
             }
-            Direction::Right => {
-                if info.focused_index < PAGE_SIZE - 1 {
+            FocusDirection::Right => {
+                if info.focused_index < X_PAGE_SIZE - 1 {
                     info.focused_index += 1;
-                } else if day.begin_index + PAGE_SIZE < day.games.len() {
+                } else if day.begin_index + X_PAGE_SIZE < day.games.len() {
                     day.begin_index += 1;
                 }
             }
-            Direction::Up => {
+            FocusDirection::Up => {
                 if info.focused_day > 0 {
                     info.focused_day -= 1;
                 }
             }
-            Direction::Down => {
+            FocusDirection::Down => {
                 if info.focused_day < info.days.len() - 1 {
                     info.focused_day += 1;
                 }
@@ -235,6 +244,8 @@ impl MlbGlUi {
     }
 }
 
+/// Calculates the percentage of the screen (assuming (0, 0) is the top-left corner) at which the top-left of the
+/// game entry at the given indices should be rendered.
 fn calc_game_location_percentage(focused: bool, x: f32, y: f32) -> (f32, f32) {
     if focused {
         let translate_x = LEFT_INDENT + (FOCUSED_GAME_SCALE * x) + (GAME_X_PADDING * x);
@@ -255,13 +266,15 @@ fn calc_game_location_percentage(focused: bool, x: f32, y: f32) -> (f32, f32) {
     }
 }
 
+/// A container for backing information for a single game.
 struct MlbGameGlInfo {
     info: MlbGameClientInfo,
     texture: Option<Texture2d>,
 }
 
 impl MlbGameGlInfo {
-    pub fn get_texture(&mut self, display: &Display) -> &Texture2d {
+    /// Lazily initializes the texture for the game represented by this container.
+    fn get_texture(&mut self, display: &Display) -> &Texture2d {
         if self.texture.is_none() {
             let image_raw = if let Some(image) = &self.info.image {
                 image.as_slice()
@@ -297,6 +310,7 @@ impl From<MlbGameClientInfo> for MlbGameGlInfo {
     }
 }
 
+/// A container for backing information for a single day.
 struct DayRowInfo {
     games: Vec<MlbGameGlInfo>,
     begin_index: usize,
@@ -308,6 +322,7 @@ impl DayRowInfo {
     }
 }
 
+/// A container for MLB UI backing information.
 pub struct MlbUiInfo {
     days: Vec<DayRowInfo>,
     focused_day: usize,
@@ -315,6 +330,7 @@ pub struct MlbUiInfo {
 }
 
 impl MlbUiInfo {
+    /// Asynchronously initializes the backing information container.
     pub async fn init() -> Self {
         let result = dss_mlb::get_games().await;
         let mut days = Vec::with_capacity(result.len());

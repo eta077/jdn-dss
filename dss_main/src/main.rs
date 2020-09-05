@@ -1,5 +1,7 @@
 #![windows_subsystem = "windows"]
 
+//! OpenGL implementation of the DSS UI.
+
 mod gl_mlb;
 mod gl_utils;
 
@@ -7,7 +9,7 @@ mod gl_utils;
 extern crate glium;
 
 use gl_mlb::{MlbGlUi, MlbUiInfo};
-use gl_utils::Direction;
+use gl_utils::FocusDirection;
 use glium::glutin::event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
 use glium::glutin::event_loop::{ControlFlow, EventLoop};
 use glium::glutin::window::{Fullscreen, WindowBuilder};
@@ -21,6 +23,7 @@ use log4rs::encode::pattern::PatternEncoder;
 
 #[tokio::main]
 async fn main() {
+    // setup logging
     let log_file = FileAppender::builder()
         .encoder(Box::new(PatternEncoder::new(
             "{d(%Y-%m-%d %H:%M:%S)} - {({l}):5.5}{n}    {m}{n}{n}",
@@ -35,9 +38,11 @@ async fn main() {
 
     info!("starting application");
 
+    // load backing data
     let mlb_ui_info = MlbUiInfo::init().await;
     info!("data loaded");
 
+    // initialize window/display
     let event_loop = EventLoop::new();
     let monitor = event_loop.primary_monitor();
     let wb = WindowBuilder::new()
@@ -52,8 +57,10 @@ async fn main() {
     });
     info!("display created");
 
+    // initialize individual UIs
     let mut mlb_gl = MlbGlUi::init(mlb_ui_info, &display);
 
+    // first pass before event loop
     let mut target = display.draw();
     target.clear_color(0.0, 0.0, 0.0, 0.0);
     mlb_gl.draw(&display, &mut target, None);
@@ -82,10 +89,10 @@ async fn main() {
                         },
                     ..
                 } => match (virtual_code, state) {
-                    (VirtualKeyCode::Left, ElementState::Released) => mlb_gl.move_focus(Direction::Left),
-                    (VirtualKeyCode::Right, ElementState::Released) => mlb_gl.move_focus(Direction::Right),
-                    (VirtualKeyCode::Up, ElementState::Released) => mlb_gl.move_focus(Direction::Up),
-                    (VirtualKeyCode::Down, ElementState::Released) => mlb_gl.move_focus(Direction::Down),
+                    (VirtualKeyCode::Left, ElementState::Released) => mlb_gl.move_focus(FocusDirection::Left),
+                    (VirtualKeyCode::Right, ElementState::Released) => mlb_gl.move_focus(FocusDirection::Right),
+                    (VirtualKeyCode::Up, ElementState::Released) => mlb_gl.move_focus(FocusDirection::Up),
+                    (VirtualKeyCode::Down, ElementState::Released) => mlb_gl.move_focus(FocusDirection::Down),
                     _ => (),
                 },
                 _ => (),
