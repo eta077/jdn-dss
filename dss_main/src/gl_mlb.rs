@@ -1,14 +1,13 @@
 //! OpenGL implementation of the MLB UI.
 
 use crate::gl_utils;
-use crate::gl_utils::{FocusDirection, ImageVertex, Vertex};
+use crate::gl_utils::{FocusDirection, GlyphBrush, ImageVertex, Vertex};
 use dss_mlb::MlbGameClientInfo;
 use glium::index::{NoIndices, PrimitiveType};
 use glium::texture::{RawImage2d, Texture2d};
 use glium::{Display, DrawParameters, Frame, Program, Surface, VertexBuffer};
-use glium_glyph::glyph_brush::Section;
-use glium_glyph::GlyphBrush;
-use log::error;
+use glyph_brush::{Section, Text};
+use log::{debug, error};
 
 /// The bytes for the image to use for a game if one cannot be retrieved.
 const DEFAULT_RAW: &[u8; 22931] = include_bytes!("default.jpg");
@@ -259,6 +258,7 @@ impl MlbGlUi {
                 error!("{}:\n{}", msg, ex);
                 panic!("{}.", msg);
             });
+        debug!("MLB background drawn");
 
         let focused_day = self.ui_info.focused_day;
         let focused_index = self.ui_info.focused_index;
@@ -287,50 +287,54 @@ impl MlbGlUi {
                 error!("{}:\n{}", msg, ex);
                 panic!("{}.", msg);
             });
+        debug!("MLB focused border drawn");
 
         for (row, day) in self.ui_info.days.iter_mut().enumerate() {
             for i in day.begin_index..(day.begin_index + X_PAGE_SIZE) {
                 let col = i - day.begin_index;
-                let game = &mut day.games[i];
+                if let Some(game) = day.games.get_mut(i) {
+                    let x = col as f32;
+                    let y = row as f32;
+                    let (game_scale, translate_x, translate_y) = if row == focused_day && col == focused_index {
+                        let game_scale = FOCUSED_GAME_SCALE;
+                        let (translate_x, translate_y) = calc_game_location_percentage(true, x, y);
+                        (game_scale, translate_x, translate_y)
+                    } else {
+                        let game_scale = GAME_SCALE;
+                        let (translate_x, translate_y) = calc_game_location_percentage(false, x, y);
+                        (game_scale, translate_x, translate_y)
+                    };
 
-                let x = col as f32;
-                let y = row as f32;
-                let (game_scale, translate_x, translate_y) = if row == focused_day && col == focused_index {
-                    let game_scale = FOCUSED_GAME_SCALE;
-                    let (translate_x, translate_y) = calc_game_location_percentage(true, x, y);
-                    (game_scale, translate_x, translate_y)
-                } else {
-                    let game_scale = GAME_SCALE;
-                    let (translate_x, translate_y) = calc_game_location_percentage(false, x, y);
-                    (game_scale, translate_x, translate_y)
-                };
-
-                let x_offset = -1.0 + (translate_x + game_scale / 2.0) * 2.0;
-                let y_offset = 1.0 - (translate_y + game_scale / 2.0) * 2.0;
-                let game_uniforms = uniform! {
-                    matrix: [
-                        [game_scale, 0.0, 0.0, 0.0],
-                        [0.0, game_scale, 0.0, 0.0],
-                        [0.0, 0.0, game_scale, 0.0],
-                        [x_offset, y_offset, 0.0, 1.0f32],
-                    ],
-                    tex: game.get_texture(&display),
-                };
-                target
-                    .draw(
-                        &self.image_square_vertices,
-                        &NoIndices(PrimitiveType::TriangleStrip),
-                        &self.image_program,
-                        &game_uniforms,
-                        &DrawParameters::default(),
-                    )
-                    .unwrap_or_else(|ex| {
-                        let msg = "Target could not draw game";
-                        error!("{}:\n{}", msg, ex);
-                        panic!("{}.", msg);
-                    });
+                    let x_offset = -1.0 + (translate_x + game_scale / 2.0) * 2.0;
+                    let y_offset = 1.0 - (translate_y + game_scale / 2.0) * 2.0;
+                    let game_uniforms = uniform! {
+                        matrix: [
+                            [game_scale, 0.0, 0.0, 0.0],
+                            [0.0, game_scale, 0.0, 0.0],
+                            [0.0, 0.0, game_scale, 0.0],
+                            [x_offset, y_offset, 0.0, 1.0f32],
+                        ],
+                        tex: game.get_texture(&display),
+                    };
+                    target
+                        .draw(
+                            &self.image_square_vertices,
+                            &NoIndices(PrimitiveType::TriangleStrip),
+                            &self.image_program,
+                            &game_uniforms,
+                            &DrawParameters::default(),
+                        )
+                        .unwrap_or_else(|ex| {
+                            let msg = "Target could not draw game";
+                            error!("{}:\n{}", msg, ex);
+                            panic!("{}.", msg);
+                        });
+                    debug!("MLB game at {}, {} drawn", col, row);
+                }
             }
         }
+        debug!("MLB games drawn");
+
         if let Some(text_brush) = text_brush_option {
             let focused_day_info = &self.ui_info.days[focused_day];
             let focused_game = &focused_day_info.games[focused_index + focused_day_info.begin_index].info;
@@ -338,8 +342,7 @@ impl MlbGlUi {
             let y_offset = (focused_translate_y - 0.05) * screen_height;
             let text_top_left = (x_offset, y_offset);
             text_brush.queue(Section {
-                text: &focused_game.title,
-                color: [1.0, 1.0, 1.0, 1.0f32],
+                text: vec![Text::new(&focused_game.title).with_color([1.0, 1.0, 1.0, 1.0f32])],
                 screen_position: text_top_left,
                 ..Section::default()
             });
@@ -347,12 +350,12 @@ impl MlbGlUi {
             let y_offset = (focused_translate_y + FOCUSED_GAME_SCALE + 0.025) * screen_height;
             let text_top_left = (x_offset, y_offset);
             text_brush.queue(Section {
-                text: &focused_game.summary,
-                color: [1.0, 1.0, 1.0, 1.0f32],
+                text: vec![Text::new(&focused_game.summary).with_color([1.0, 1.0, 1.0, 1.0f32])],
                 screen_position: text_top_left,
                 ..Section::default()
             });
             text_brush.draw_queued(display, target);
+            debug!("MLB text drawn");
         }
     }
 
