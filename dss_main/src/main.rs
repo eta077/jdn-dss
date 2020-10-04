@@ -15,7 +15,7 @@ use glium::glutin::event_loop::{ControlFlow, EventLoop};
 use glium::glutin::window::{Fullscreen, WindowBuilder};
 use glium::glutin::ContextBuilder;
 use glium::{Display, Surface};
-use glium_glyph::GlyphBrushBuilder;
+use glyph_brush::ab_glyph::FontArc;
 use log::{error, info};
 use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config, Root};
@@ -59,6 +59,7 @@ async fn main() {
 
     // initialize individual UIs
     let mut mlb_gl = MlbGlUi::init(mlb_ui_info, &display);
+    info!("MLB GUI initialized");
 
     // first pass before event loop
     let mut target = display.draw();
@@ -72,7 +73,14 @@ async fn main() {
     info!("first pass drawn");
 
     // load text brush after first pass to prevent black screen
-    let mut text_brush = GlyphBrushBuilder::using_font_bytes(include_bytes!("tahoma.ttf").to_vec()).build(&display);
+    let font = FontArc::try_from_slice(include_bytes!("tahoma.ttf")).unwrap_or_else(|ex| {
+        let msg = "Could not load font";
+        error!("{}:\n{}", msg, ex);
+        panic!("{}.", msg);
+    });
+    info!("font loaded");
+    let mut text_brush = gl_utils::GlyphBrush::build(font, &display);
+    info!("text brush built");
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
