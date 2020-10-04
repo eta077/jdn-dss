@@ -337,25 +337,34 @@ impl MlbGlUi {
 
         if let Some(text_brush) = text_brush_option {
             let focused_day_info = &self.ui_info.days[focused_day];
-            let focused_game = &focused_day_info.games[focused_index + focused_day_info.begin_index].info;
-            let x_offset = focused_translate_x * screen_width;
-            let y_offset = (focused_translate_y - 0.05) * screen_height;
-            let text_top_left = (x_offset, y_offset);
-            text_brush.queue(Section {
-                text: vec![Text::new(&focused_game.title).with_color([1.0, 1.0, 1.0, 1.0f32])],
-                screen_position: text_top_left,
-                ..Section::default()
-            });
-            let x_offset = focused_translate_x * screen_width;
-            let y_offset = (focused_translate_y + FOCUSED_GAME_SCALE + 0.025) * screen_height;
-            let text_top_left = (x_offset, y_offset);
-            text_brush.queue(Section {
-                text: vec![Text::new(&focused_game.summary).with_color([1.0, 1.0, 1.0, 1.0f32])],
-                screen_position: text_top_left,
-                ..Section::default()
-            });
-            text_brush.draw_queued(display, target);
-            debug!("MLB text drawn");
+            if let Some(focused_game) = focused_day_info.games.get(focused_index + focused_day_info.begin_index) {
+                let focused_game = &focused_game.info;
+                let bounds = (FOCUSED_GAME_SCALE * screen_width, 0.05 * screen_height);
+                let x_offset = focused_translate_x * screen_width;
+                let y_offset = (focused_translate_y - 0.05) * screen_height;
+                let text_top_left = (x_offset, y_offset);
+                text_brush.queue(Section {
+                    text: vec![Text::new(&focused_game.title)
+                        .with_color([1.0, 1.0, 1.0, 1.0f32])
+                        .with_scale(32.0)],
+                    screen_position: text_top_left,
+                    bounds,
+                    ..Section::default()
+                });
+                let x_offset = focused_translate_x * screen_width;
+                let y_offset = (focused_translate_y + FOCUSED_GAME_SCALE + 0.025) * screen_height;
+                let text_top_left = (x_offset, y_offset);
+                text_brush.queue(Section {
+                    text: vec![Text::new(&focused_game.summary)
+                        .with_color([1.0, 1.0, 1.0, 1.0f32])
+                        .with_scale(32.0)],
+                    screen_position: text_top_left,
+                    bounds,
+                    ..Section::default()
+                });
+                text_brush.draw_queued(display, target);
+                debug!("MLB text drawn");
+            }
         }
     }
 

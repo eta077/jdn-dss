@@ -6,7 +6,7 @@ use chrono::{DateTime, Duration, Local, NaiveDate, TimeZone, Utc};
 use hyper::client::HttpConnector;
 use hyper::{Body, Client};
 use hyper_tls::HttpsConnector;
-use log::error;
+use log::{debug, error};
 use serde_derive::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt::Display;
@@ -93,7 +93,7 @@ struct MlbImageCuts {
 }
 
 /// A container for information used by the client to display an MLB game entry.
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct MlbGameClientInfo {
     pub title: String,
     pub image: Option<Vec<u8>>,
@@ -102,6 +102,7 @@ pub struct MlbGameClientInfo {
 
 /// Retrieves information about all games over a period of time.
 pub async fn get_games() -> BTreeMap<NaiveDate, Vec<MlbGameClientInfo>> {
+    debug!("starting get_games");
     let today = Local::now();
     let timezone = today.timezone();
     let client = Client::new();
@@ -117,11 +118,13 @@ pub async fn get_games() -> BTreeMap<NaiveDate, Vec<MlbGameClientInfo>> {
     for future in futures::future::join_all(futures).await {
         match future {
             Ok((day, info)) => {
+                debug!("extracted {} games for {}", info.len(), day);
                 results.insert(day, info);
             }
             Err(ex) => error!("Error while retrieving game data:\n{}", ex),
         }
     }
+    debug!("ending get_games");
     results
 }
 

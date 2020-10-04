@@ -1,5 +1,6 @@
 //! General purpose OpenGL utilities.
 
+use std::borrow::Cow;
 use std::ops::Deref;
 
 use glium::backend::{Context, Facade};
@@ -221,7 +222,7 @@ fn rect_from_rect(rect: glyph_brush::Rectangle<u32>) -> Rect<u32> {
 
 fn update_texture(tex: &Texture2d, rect: Rect<u32>, tex_data: &[u8]) {
     let image = RawImage2d {
-        data: std::borrow::Cow::Borrowed(tex_data),
+        data: Cow::Borrowed(tex_data),
         format: ClientFormat::U8,
         height: rect.height(),
         width: rect.width(),
